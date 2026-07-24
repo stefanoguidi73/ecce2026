@@ -32,15 +32,20 @@
   let bookmarks = loadBookmarks();
   let notes = loadNotes();
 
-  // assign a rotating accent colour to each session, in a stable day/time order.
+  // assign a rotating accent colour to each session, and a stable string key,
+  // in a stable day/time order. The key lets us remember which session cards
+  // the user has manually expanded across re-renders (e.g. after a bookmark toggle).
   const sessionAccent = new Map();
-  (function buildAccents() {
+  const sessionKey = new Map();
+  const openSessions = new Set();
+  (function buildSessionMeta() {
     let i = 0;
     DAY_ORDER.forEach(day => {
       (AGENDA[day] || []).forEach(block => {
         block.tracks.forEach(tr => {
           if (tr.kind === 'session') {
             sessionAccent.set(tr.session, ACCENTS[i % ACCENTS.length]);
+            sessionKey.set(tr.session, day + '|' + block.start + '|' + (tr.track || ''));
             i++;
           }
         });
@@ -124,7 +129,10 @@
         </div>
         <div class="ptitle">${highlight(p.title, q)}</div>
         <div class="pauthors">${highlight(p.authors, q)}</div>
-        <div class="pmore" data-action="toggle-detail">dettagli ↓</div>
+        <div class="prow">
+          <div class="pmore" data-action="toggle-detail">dettagli ↓</div>
+          <span class="noteicon ${note ? 'on' : ''}" data-role="noteicon" title="${note ? 'Hai note salvate' : 'Nessuna nota'}">✎</span>
+        </div>
         <div class="pdetail">
           <div>${esc(p.abstract || 'Abstract non disponibile.')}</div>
           ${p.keywords ? `<div class="kw">${esc(p.keywords)}</div>` : ''}
@@ -143,16 +151,19 @@
     const s = tr.session;
     const accent = sessionAccent.get(s) || 'var(--g-pink)';
     const matched = s.papers.filter(filterFn);
-    const forceOpen = !!opts.forceOpen || (!!q && matched.length > 0);
+    const key = sessionKey.get(s) || '';
+    const forceOpen = !!opts.forceOpen || openSessions.has(key) || (!!q && matched.length > 0);
     const countLabel = matched.length === s.papers.length
       ? `${s.papers.length} paper`
       : `${matched.length} di ${s.papers.length} paper`;
+    const savedCount = s.papers.filter(p => bookmarks.has(p.id)).length;
+    const savedBadge = savedCount > 0 ? `<span class="savedcount">${'★'.repeat(savedCount)}</span>` : '';
     return `
-      <div class="card session" data-role="session" style="--accent:${accent}">
+      <div class="card session" data-role="session" data-skey="${esc(key)}" style="--accent:${accent}">
         <span class="chev">${forceOpen ? '▾' : '▸'}</span>
         ${trackLabel ? `<div class="tracklabel">Track ${trackLabel}</div>` : ''}
         <h3>${esc(s.title)}</h3>
-        <div class="count">${countLabel}</div>
+        <div class="count">${countLabel}${savedBadge}</div>
         <div class="paperlist ${forceOpen ? 'open' : ''}">
           ${matched.map(p => paperHTML(p, q)).join('')}
         </div>
@@ -268,6 +279,8 @@
         const chev = card.querySelector('.chev');
         const isOpen = list.classList.toggle('open');
         chev.textContent = isOpen ? '▾' : '▸';
+        const key = card.getAttribute('data-skey');
+        if (key) { if (isOpen) openSessions.add(key); else openSessions.delete(key); }
       });
     });
     mainEl.querySelectorAll('[data-action="toggle-detail"]').forEach(el => {
@@ -284,12 +297,7 @@
         const id = Number(btn.getAttribute('data-pid'));
         if (bookmarks.has(id)) bookmarks.delete(id); else bookmarks.add(id);
         saveBookmarks();
-        if (view === 'mine') {
-          render();
-        } else {
-          btn.classList.toggle('on');
-          btn.textContent = bookmarks.has(id) ? '★' : '☆';
-        }
+        render();
       });
     });
     mainEl.querySelectorAll('[data-action="note"]').forEach(ta => {
@@ -297,6 +305,8 @@
       ta.addEventListener('input', () => {
         const id = Number(ta.getAttribute('data-pid'));
         notes[id] = ta.value;
+        const icon = ta.closest('.paper').querySelector('[data-role="noteicon"]');
+        if (icon) icon.classList.toggle('on', ta.value.trim().length > 0);
         clearTimeout(t);
         t = setTimeout(() => {
           saveNotes();
