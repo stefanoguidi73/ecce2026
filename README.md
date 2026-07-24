@@ -1,4 +1,3 @@
-[README.md](https://github.com/user-attachments/files/30351323/README.md)
 # ECCE 2026 — Programma (webapp)
 
 Guida rapida per pubblicare la webapp del programma online, gratis.
