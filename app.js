@@ -286,9 +286,21 @@
     mainEl.querySelectorAll('[data-action="toggle-detail"]').forEach(el => {
       el.addEventListener('click', (e) => {
         e.stopPropagation();
-        const detail = el.nextElementSibling;
+        const detail = el.closest('.paper').querySelector('.pdetail');
         const open = detail.classList.toggle('open');
         el.textContent = open ? 'dettagli ↑' : 'dettagli ↓';
+      });
+    });
+    mainEl.querySelectorAll('[data-role="noteicon"]').forEach(icon => {
+      icon.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const paper = icon.closest('.paper');
+        const detail = paper.querySelector('.pdetail');
+        const more = paper.querySelector('[data-action="toggle-detail"]');
+        detail.classList.add('open');
+        more.textContent = 'dettagli ↑';
+        const ta = paper.querySelector('textarea[data-action="note"]');
+        if (ta) { ta.focus(); if (ta.scrollIntoView) ta.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
       });
     });
     mainEl.querySelectorAll('[data-action="toggle-bookmark"]').forEach(btn => {
