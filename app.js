@@ -33,11 +33,8 @@
   let notes = loadNotes();
 
   // assign a rotating accent colour to each session, in a stable day/time order.
-  // Also build a flat index of every paper -> where it lives (session/day/time context),
-  // used both for the accent map and for the "Mine" view.
   const sessionAccent = new Map();
-  const paperIndex = new Map(); // id -> { paper, day, time, sessionTitle, track }
-  (function buildIndex() {
+  (function buildAccents() {
     let i = 0;
     DAY_ORDER.forEach(day => {
       (AGENDA[day] || []).forEach(block => {
@@ -45,15 +42,9 @@
           if (tr.kind === 'session') {
             sessionAccent.set(tr.session, ACCENTS[i % ACCENTS.length]);
             i++;
-            tr.session.papers.forEach(p => {
-              paperIndex.set(p.id, { paper: p, day, time: block.start, sessionTitle: tr.session.title, track: tr.track });
-            });
           }
         });
       });
-    });
-    RESERVE.forEach(p => {
-      paperIndex.set(p.id, { paper: p, day: null, time: null, sessionTitle: 'Riserva', track: null });
     });
   })();
 
@@ -119,13 +110,11 @@
     minetabEl.appendChild(mine);
   }
 
-  function paperHTML(p, q, ctx) {
+  function paperHTML(p, q) {
     const isBookmarked = bookmarks.has(p.id);
     const note = notes[p.id] || '';
-    const ctxLine = ctx ? `<div class="mineitem-ctx">${esc(ctx)}</div>` : '';
     return `
       <div class="paper" data-pid="${p.id}">
-        ${ctxLine}
         <div class="ptop">
           <div class="ptopleft">
             <span class="pid">#${p.id}</span>
@@ -148,19 +137,24 @@
       </div>`;
   }
 
-  function sessionCardHTML(tr, q, trackLabel) {
+  function sessionCardHTML(tr, q, trackLabel, opts) {
+    opts = opts || {};
+    const filterFn = opts.filterFn || (p => paperMatches(p, q));
     const s = tr.session;
     const accent = sessionAccent.get(s) || 'var(--g-pink)';
-    const openCount = s.papers.filter(p => paperMatches(p, q)).length;
-    const forceOpen = q && openCount > 0;
+    const matched = s.papers.filter(filterFn);
+    const forceOpen = !!opts.forceOpen || (!!q && matched.length > 0);
+    const countLabel = matched.length === s.papers.length
+      ? `${s.papers.length} paper`
+      : `${matched.length} di ${s.papers.length} paper`;
     return `
       <div class="card session" data-role="session" style="--accent:${accent}">
         <span class="chev">${forceOpen ? '▾' : '▸'}</span>
         ${trackLabel ? `<div class="tracklabel">Track ${trackLabel}</div>` : ''}
         <h3>${esc(s.title)}</h3>
-        <div class="count">${s.papers.length} paper</div>
+        <div class="count">${countLabel}</div>
         <div class="paperlist ${forceOpen ? 'open' : ''}">
-          ${s.papers.filter(p => paperMatches(p, q)).map(p => paperHTML(p, q)).join('')}
+          ${matched.map(p => paperHTML(p, q)).join('')}
         </div>
       </div>`;
   }
@@ -180,16 +174,19 @@
     return `<div class="${cls}"><span class="label">${esc(tr.title)}</span></div>`;
   }
 
-  function blockHTML(block, q) {
+  function blockHTML(block, q, opts) {
+    opts = opts || {};
+    const filterFn = opts.filterFn || (p => paperMatches(p, q));
+    const customFilter = !!opts.filterFn;
     const visibleTracks = block.tracks.map(tr => {
       if (tr.kind === 'session') {
-        const anyMatch = !q || tr.session.papers.some(p => paperMatches(p, q));
-        return anyMatch ? { tr, html: sessionCardHTML(tr, q, tr.track) } : null;
+        const anyMatch = tr.session.papers.some(filterFn);
+        return anyMatch ? { tr, html: sessionCardHTML(tr, q, tr.track, opts) } : null;
       }
       if (tr.kind === 'workshop') {
-        return q ? null : { tr, html: workshopCardHTML(tr) };
+        return (q || customFilter) ? null : { tr, html: workshopCardHTML(tr) };
       }
-      return q ? null : { tr, html: eventCardHTML(tr) };
+      return (q || customFilter) ? null : { tr, html: eventCardHTML(tr) };
     }).filter(Boolean);
 
     if (visibleTracks.length === 0) return '';
@@ -201,8 +198,8 @@
       </div>`;
   }
 
-  function renderDay(day, q) {
-    const blocksHtml = (AGENDA[day] || []).map(b => blockHTML(b, q)).join('');
+  function renderDay(day, q, opts) {
+    const blocksHtml = (AGENDA[day] || []).map(b => blockHTML(b, q, opts)).join('');
     return blocksHtml || '';
   }
 
@@ -218,25 +215,24 @@
   }
 
   function renderMine() {
-    const ids = [...bookmarks];
-    if (ids.length === 0) {
+    if (bookmarks.size === 0) {
       return `<div class="empty"><span class="big">☆</span>Non hai ancora salvato nessun paper.<br>Tocca la stellina su un paper per aggiungerlo qui.</div>`;
     }
-    const dayRank = { "15": 0, "16": 1, "17": 2, "18": 3 };
-    const items = ids
-      .map(id => paperIndex.get(id))
-      .filter(Boolean)
-      .sort((a, b) => {
-        const da = a.day ? dayRank[a.day] : 9, db = b.day ? dayRank[b.day] : 9;
-        if (da !== db) return da - db;
-        return (a.time || '').localeCompare(b.time || '');
-      });
-    return items.map(item => {
-      const ctxParts = [];
-      if (item.day) ctxParts.push(DAY_FULL[item.day] + (item.time ? ' · ' + item.time : ''));
-      ctxParts.push(item.sessionTitle + (item.track ? ' (Track ' + item.track + ')' : ''));
-      return paperHTML(item.paper, '', ctxParts.join(' — '));
-    }).join('');
+    const filterFn = p => bookmarks.has(p.id);
+    let html = '';
+    DAY_ORDER.forEach(day => {
+      const dayHtml = renderDay(day, '', { filterFn, forceOpen: true });
+      if (dayHtml) html += `<h2 class="daytitle">${DAY_FULL[day]}</h2>` + dayHtml;
+    });
+    const reserveItems = RESERVE.filter(filterFn);
+    if (reserveItems.length > 0) {
+      html += `
+        <h2 class="daytitle">Riserva</h2>
+        <div class="reserve" style="margin-top:0; padding-top:0;">
+          ${reserveItems.map(p => paperHTML(p, '')).join('')}
+        </div>`;
+    }
+    return html || `<div class="empty">Nessun paper salvato in questa selezione.</div>`;
   }
 
   function render() {
