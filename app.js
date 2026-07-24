@@ -78,6 +78,58 @@
     return hay.includes(q.toLowerCase());
   }
 
+  // ---------- calendar (.ics) export ----------
+  function pad2(n) { return String(n).padStart(2, '0'); }
+  function icsDateTime(day, time) {
+    if (!day || !time) return null;
+    const [h, m] = time.split(':');
+    return `202609${day}T${pad2(h)}${pad2(m)}00`;
+  }
+  function icsEscape(s) {
+    return (s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+  }
+  function downloadICS({ title, location, description, day, start, end }) {
+    const dtStart = icsDateTime(day, start);
+    if (!dtStart) return;
+    let dtEnd = end ? icsDateTime(day, end) : null;
+    if (!dtEnd) {
+      let [h, m] = start.split(':').map(Number);
+      h = (h + 1) % 24;
+      dtEnd = icsDateTime(day, pad2(h) + ':' + pad2(m));
+    }
+    const uid = 'ecce2026-' + Math.random().toString(36).slice(2) + '@ecce2026';
+    const dtstamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    const lines = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//ECCE2026//Programme//IT',
+      'BEGIN:VEVENT',
+      'UID:' + uid,
+      'DTSTAMP:' + dtstamp,
+      'DTSTART:' + dtStart,
+      'DTEND:' + dtEnd,
+      'SUMMARY:' + icsEscape(title),
+      'LOCATION:' + icsEscape(location || ''),
+      'DESCRIPTION:' + icsEscape(description || ''),
+      'END:VEVENT', 'END:VCALENDAR'
+    ];
+    const blob = new Blob([lines.join('\r\n')], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (title || 'evento').replace(/[^\w\-]+/g, '_').slice(0, 60) + '.ics';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+  function calButtonHTML(cal) {
+    if (!cal || !cal.day || !cal.start) return '';
+    return `<button class="calbtn" data-action="add-calendar"
+      data-cal-title="${esc(cal.title)}" data-cal-loc="${esc(cal.location || '')}"
+      data-cal-desc="${esc(cal.description || '')}" data-cal-day="${esc(cal.day)}"
+      data-cal-start="${esc(cal.start)}" data-cal-end="${esc(cal.end || '')}"
+      aria-label="Aggiungi al calendario" title="Aggiungi al calendario">🗓</button>`;
+  }
+
   function collectAllSessionsForSearch() {
     const results = [];
     DAY_ORDER.forEach(day => {
@@ -115,9 +167,15 @@
     minetabEl.appendChild(mine);
   }
 
-  function paperHTML(p, q) {
+  function paperHTML(p, q, timeCtx, sessionTitle) {
     const isBookmarked = bookmarks.has(p.id);
     const note = notes[p.id] || '';
+    const calBtn = timeCtx ? calButtonHTML({
+      title: p.title,
+      location: 'ECCE 2026 — Siena, Italy',
+      description: (sessionTitle ? sessionTitle + ' — ' : '') + p.authors,
+      day: timeCtx.day, start: timeCtx.start, end: timeCtx.end
+    }) : '';
     return `
       <div class="paper" data-pid="${p.id}">
         <div class="ptop">
@@ -125,7 +183,10 @@
             <span class="pid">#${p.id}</span>
             <span class="ptype">${esc(p.type)}</span>
           </div>
-          <button class="bookmark ${isBookmarked ? 'on' : ''}" data-action="toggle-bookmark" data-pid="${p.id}" aria-label="Salva in Il mio programma">${isBookmarked ? '★' : '☆'}</button>
+          <div class="ptopright">
+            ${calBtn}
+            <button class="bookmark ${isBookmarked ? 'on' : ''}" data-action="toggle-bookmark" data-pid="${p.id}" aria-label="Salva in Il mio programma">${isBookmarked ? '★' : '☆'}</button>
+          </div>
         </div>
         <div class="ptitle">${highlight(p.title, q)}</div>
         <div class="pauthors">${highlight(p.authors, q)}</div>
@@ -145,7 +206,7 @@
       </div>`;
   }
 
-  function sessionCardHTML(tr, q, trackLabel, opts) {
+  function sessionCardHTML(tr, q, trackLabel, opts, timeCtx) {
     opts = opts || {};
     const filterFn = opts.filterFn || (p => paperMatches(p, q));
     const s = tr.session;
@@ -165,39 +226,49 @@
         <h3>${esc(s.title)}</h3>
         <div class="count">${countLabel}${savedBadge}</div>
         <div class="paperlist ${forceOpen ? 'open' : ''}">
-          ${matched.map(p => paperHTML(p, q)).join('')}
+          ${matched.map(p => paperHTML(p, q, timeCtx, s.title)).join('')}
         </div>
       </div>`;
   }
 
-  function workshopCardHTML(tr) {
+  function workshopCardHTML(tr, timeCtx) {
+    const calBtn = timeCtx ? calButtonHTML({
+      title: tr.title, location: 'Santa Chiara Lab, Siena',
+      description: 'ECCE 2026 — su registrazione',
+      day: timeCtx.day, start: timeCtx.start, end: timeCtx.end
+    }) : '';
     return `
       <div class="card workshop">
-        <div class="wtitle">${esc(tr.title)}</div>
-        <div class="wmeta">Palazzo San Niccolò, Via Roma 56, Siena</div>
+        <div class="wtop"><div class="wtitle">${esc(tr.title)}</div>${calBtn}</div>
+        <div class="wmeta">Santa Chiara Lab, Siena</div>
         <div class="wmeta">For registered participants only</div>
         <span class="wbadge">Workshop</span>
       </div>`;
   }
 
-  function eventCardHTML(tr) {
+  function eventCardHTML(tr, timeCtx) {
     const cls = tr.kind === 'keynote' ? 'card event keynote' : 'card event';
-    return `<div class="${cls}"><span class="label">${esc(tr.title)}</span></div>`;
+    const calBtn = (tr.kind === 'keynote' && timeCtx) ? calButtonHTML({
+      title: tr.title, location: 'ECCE 2026 — Siena, Italy', description: '',
+      day: timeCtx.day, start: timeCtx.start, end: timeCtx.end
+    }) : '';
+    return `<div class="${cls}"><span class="label">${esc(tr.title)}</span>${calBtn}</div>`;
   }
 
-  function blockHTML(block, q, opts) {
+  function blockHTML(day, block, q, opts) {
     opts = opts || {};
     const filterFn = opts.filterFn || (p => paperMatches(p, q));
     const customFilter = !!opts.filterFn;
+    const timeCtx = { day, start: block.start, end: block.end };
     const visibleTracks = block.tracks.map(tr => {
       if (tr.kind === 'session') {
         const anyMatch = tr.session.papers.some(filterFn);
-        return anyMatch ? { tr, html: sessionCardHTML(tr, q, tr.track, opts) } : null;
+        return anyMatch ? { tr, html: sessionCardHTML(tr, q, tr.track, opts, timeCtx) } : null;
       }
       if (tr.kind === 'workshop') {
-        return (q || customFilter) ? null : { tr, html: workshopCardHTML(tr) };
+        return (q || customFilter) ? null : { tr, html: workshopCardHTML(tr, timeCtx) };
       }
-      return (q || customFilter) ? null : { tr, html: eventCardHTML(tr) };
+      return (q || customFilter) ? null : { tr, html: eventCardHTML(tr, timeCtx) };
     }).filter(Boolean);
 
     if (visibleTracks.length === 0) return '';
@@ -210,7 +281,7 @@
   }
 
   function renderDay(day, q, opts) {
-    const blocksHtml = (AGENDA[day] || []).map(b => blockHTML(b, q, opts)).join('');
+    const blocksHtml = (AGENDA[day] || []).map(b => blockHTML(day, b, q, opts)).join('');
     return blocksHtml || '';
   }
 
@@ -301,6 +372,19 @@
         more.textContent = 'dettagli ↑';
         const ta = paper.querySelector('textarea[data-action="note"]');
         if (ta) { ta.focus(); if (ta.scrollIntoView) ta.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+      });
+    });
+    mainEl.querySelectorAll('[data-action="add-calendar"]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        downloadICS({
+          title: btn.getAttribute('data-cal-title'),
+          location: btn.getAttribute('data-cal-loc'),
+          description: btn.getAttribute('data-cal-desc'),
+          day: btn.getAttribute('data-cal-day'),
+          start: btn.getAttribute('data-cal-start'),
+          end: btn.getAttribute('data-cal-end'),
+        });
       });
     });
     mainEl.querySelectorAll('[data-action="toggle-bookmark"]').forEach(btn => {
