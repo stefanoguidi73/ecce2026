@@ -158,7 +158,6 @@
       btn.onclick = () => { query = ''; searchEl.value = ''; view = targetView; render(); };
       tabstripEl.appendChild(btn);
     };
-    addTab('overview', '≡', 'At a glance', 'overview');
     DAY_ORDER.forEach(day => {
       const btn = document.createElement('button');
       btn.className = 'daytab' + (view === 'day' && day === currentDay && !query ? ' active' : '');
@@ -300,15 +299,6 @@
       </div>`;
   }
 
-  function renderOverview() {
-    let html = '';
-    DAY_ORDER.forEach(day => {
-      const dayHtml = renderDay(day, '', {});
-      if (dayHtml) html += `<h2 class="daytitle">${DAY_FULL[day]}</h2>` + dayHtml;
-    });
-    return html;
-  }
-
   function downloadAllNotes(items) {
     const lines = ['ECCE 2026 — My notes', ''];
     items.forEach(({ p }) => {
@@ -404,9 +394,6 @@
       mainEl.innerHTML = html;
     } else if (view === 'mine') {
       mainEl.innerHTML = renderMine();
-      searchMetaEl.textContent = '';
-    } else if (view === 'overview') {
-      mainEl.innerHTML = renderOverview();
       searchMetaEl.textContent = '';
     } else if (view === 'notes') {
       mainEl.innerHTML = renderNotesTab();
