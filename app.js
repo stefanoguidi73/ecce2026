@@ -12,7 +12,7 @@
 
   let currentDay = "16";
   let query = "";
-  let view = "day"; // "day" | "mine"
+  let view = "day"; // "overview" | "day" | "mine" | "notes" | "where"
 
   function loadBookmarks() {
     try { return new Set(JSON.parse(localStorage.getItem(LS_BOOKMARKS) || '[]')); }
@@ -53,8 +53,7 @@
     });
   })();
 
-  const daytabsEl = document.getElementById('daytabs');
-  const minetabEl = document.getElementById('minetab');
+  const tabstripEl = document.getElementById('tabstrip');
   const mainEl = document.getElementById('main');
   const searchEl = document.getElementById('search');
   const searchMetaEl = document.getElementById('searchmeta');
@@ -127,7 +126,7 @@
       data-cal-title="${esc(cal.title)}" data-cal-loc="${esc(cal.location || '')}"
       data-cal-desc="${esc(cal.description || '')}" data-cal-day="${esc(cal.day)}"
       data-cal-start="${esc(cal.start)}" data-cal-end="${esc(cal.end || '')}"
-      aria-label="Aggiungi al calendario" title="Aggiungi al calendario">🗓</button>`;
+      aria-label="Add to calendar" title="Add to calendar">🗓</button>`;
   }
 
   function collectAllSessionsForSearch() {
@@ -151,20 +150,25 @@
 
   // ---------- render ----------
   function renderTabs() {
-    daytabsEl.innerHTML = '';
+    tabstripEl.innerHTML = '';
+    const addTab = (id, dTop, label, targetView) => {
+      const btn = document.createElement('button');
+      btn.className = 'daytab' + (view === targetView && !query ? ' active' : '');
+      btn.innerHTML = '<span class="d">' + dTop + '</span>' + label;
+      btn.onclick = () => { query = ''; searchEl.value = ''; view = targetView; render(); };
+      tabstripEl.appendChild(btn);
+    };
+    addTab('overview', '≡', 'At a glance', 'overview');
     DAY_ORDER.forEach(day => {
       const btn = document.createElement('button');
       btn.className = 'daytab' + (view === 'day' && day === currentDay && !query ? ' active' : '');
       btn.innerHTML = '<span class="d">' + day + '</span>' + DAY_LABEL[day];
       btn.onclick = () => { query = ''; searchEl.value = ''; view = 'day'; currentDay = day; render(); };
-      daytabsEl.appendChild(btn);
+      tabstripEl.appendChild(btn);
     });
-    minetabEl.innerHTML = '';
-    const mine = document.createElement('button');
-    mine.className = 'daytab mine' + (view === 'mine' && !query ? ' active' : '');
-    mine.innerHTML = '<span class="d">★</span>Mine';
-    mine.onclick = () => { query = ''; searchEl.value = ''; view = 'mine'; render(); };
-    minetabEl.appendChild(mine);
+    addTab('mine', '★', 'Mine', 'mine');
+    addTab('notes', '✎', 'Notes', 'notes');
+    addTab('where', '📍', 'Where', 'where');
   }
 
   function paperHTML(p, q, timeCtx, sessionTitle) {
@@ -185,22 +189,22 @@
           </div>
           <div class="ptopright">
             ${calBtn}
-            <button class="bookmark ${isBookmarked ? 'on' : ''}" data-action="toggle-bookmark" data-pid="${p.id}" aria-label="Salva in Il mio programma">${isBookmarked ? '★' : '☆'}</button>
+            <button class="bookmark ${isBookmarked ? 'on' : ''}" data-action="toggle-bookmark" data-pid="${p.id}" aria-label="Save to My programme">${isBookmarked ? '★' : '☆'}</button>
           </div>
         </div>
         <div class="ptitle">${highlight(p.title, q)}</div>
         <div class="pauthors">${highlight(p.authors, q)}</div>
         <div class="prow">
-          <div class="pmore" data-action="toggle-detail">dettagli ↓</div>
-          <span class="noteicon ${note ? 'on' : ''}" data-role="noteicon" title="${note ? 'Hai note salvate' : 'Nessuna nota'}">✎</span>
+          <div class="pmore" data-action="toggle-detail">details ↓</div>
+          <span class="noteicon ${note ? 'on' : ''}" data-role="noteicon" title="${note ? 'You have saved notes' : 'No notes'}">✎</span>
         </div>
         <div class="pdetail">
-          <div>${esc(p.abstract || 'Abstract non disponibile.')}</div>
+          <div>${esc(p.abstract || 'Abstract not available.')}</div>
           ${p.keywords ? `<div class="kw">${esc(p.keywords)}</div>` : ''}
           <div class="notewrap">
-            <label for="note-${p.id}">Le tue note</label>
-            <textarea id="note-${p.id}" data-action="note" data-pid="${p.id}" placeholder="Scrivi qui le tue note su questo talk…">${esc(note)}</textarea>
-            <div class="savedhint" data-role="savedhint">salvato</div>
+            <label for="note-${p.id}">Your notes</label>
+            <textarea id="note-${p.id}" data-action="note" data-pid="${p.id}" placeholder="Write your notes on this talk…">${esc(note)}</textarea>
+            <div class="savedhint" data-role="savedhint">saved</div>
           </div>
         </div>
       </div>`;
@@ -215,8 +219,8 @@
     const key = sessionKey.get(s) || '';
     const forceOpen = !!opts.forceOpen || openSessions.has(key) || (!!q && matched.length > 0);
     const countLabel = matched.length === s.papers.length
-      ? `${s.papers.length} paper`
-      : `${matched.length} di ${s.papers.length} paper`;
+      ? `${s.papers.length} papers`
+      : `${matched.length} of ${s.papers.length} papers`;
     const savedCount = s.papers.filter(p => bookmarks.has(p.id)).length;
     const savedBadge = savedCount > 0 ? `<span class="savedcount">${'★'.repeat(savedCount)}</span>` : '';
     return `
@@ -234,7 +238,7 @@
   function workshopCardHTML(tr, timeCtx) {
     const calBtn = timeCtx ? calButtonHTML({
       title: tr.title, location: 'Santa Chiara Lab, Siena',
-      description: 'ECCE 2026 — su registrazione',
+      description: 'ECCE 2026 — registered participants only',
       day: timeCtx.day, start: timeCtx.start, end: timeCtx.end
     }) : '';
     return `
@@ -290,15 +294,81 @@
     if (items.length === 0) return '';
     return `
       <div class="reserve">
-        <h2>Paper in riserva</h2>
-        <p class="note">Surplus rispetto alla capienza delle sessioni — da collocare se si liberano slot.</p>
+        <h2>Reserve papers</h2>
+        <p class="note">Surplus beyond session capacity — to be placed if a slot frees up.</p>
         ${items.map(p => paperHTML(p, q)).join('')}
       </div>`;
   }
 
+  function renderOverview() {
+    let html = '';
+    DAY_ORDER.forEach(day => {
+      const dayHtml = renderDay(day, '', {});
+      if (dayHtml) html += `<h2 class="daytitle">${DAY_FULL[day]}</h2>` + dayHtml;
+    });
+    return html;
+  }
+
+  function downloadAllNotes(items) {
+    const lines = ['ECCE 2026 — My notes', ''];
+    items.forEach(({ p }) => {
+      lines.push('#' + p.id + ' — ' + p.title);
+      lines.push('Authors: ' + p.authors);
+      lines.push('');
+      lines.push('Abstract:');
+      lines.push(p.abstract || '(not available)');
+      lines.push('');
+      lines.push('My notes:');
+      lines.push(notes[p.id]);
+      lines.push('');
+      lines.push('----------------------------------------');
+      lines.push('');
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ecce2026_notes.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  function renderNotesTab() {
+    const filterFn = p => (notes[p.id] || '').trim().length > 0;
+    const items = [];
+    DAY_ORDER.forEach(day => {
+      (AGENDA[day] || []).forEach(block => {
+        block.tracks.forEach(tr => {
+          if (tr.kind === 'session') {
+            tr.session.papers.forEach(p => { if (filterFn(p)) items.push({ p }); });
+          }
+        });
+      });
+    });
+    RESERVE.forEach(p => { if (filterFn(p)) items.push({ p }); });
+
+    if (items.length === 0) {
+      return `<div class="empty"><span class="big">✎</span>You haven't written any notes yet.<br>Open a paper's details to get started.</div>`;
+    }
+
+    const downloadBtn = `<div class="notes-download"><button data-action="download-all-notes">⬇ Download all notes (.txt)</button></div>`;
+    let html = downloadBtn;
+    DAY_ORDER.forEach(day => {
+      const dayHtml = renderDay(day, '', { filterFn, forceOpen: true });
+      if (dayHtml) html += `<h2 class="daytitle">${DAY_FULL[day]}</h2>` + dayHtml;
+    });
+    return html;
+  }
+
+  function renderWhere() {
+    return `<div class="empty"><span class="big">📍</span>Section coming soon.<br>Here you'll soon find information about the conference venues, with maps to help you get there.</div>`;
+  }
+
   function renderMine() {
     if (bookmarks.size === 0) {
-      return `<div class="empty"><span class="big">☆</span>Non hai ancora salvato nessun paper.<br>Tocca la stellina su un paper per aggiungerlo qui.</div>`;
+      return `<div class="empty"><span class="big">☆</span>You haven't saved any papers yet.<br>Tap the star on a paper to add it here.</div>`;
     }
     const filterFn = p => bookmarks.has(p.id);
     let html = '';
@@ -309,12 +379,12 @@
     const reserveItems = RESERVE.filter(filterFn);
     if (reserveItems.length > 0) {
       html += `
-        <h2 class="daytitle">Riserva</h2>
+        <h2 class="daytitle">Reserve</h2>
         <div class="reserve" style="margin-top:0; padding-top:0;">
           ${reserveItems.map(p => paperHTML(p, '')).join('')}
         </div>`;
     }
-    return html || `<div class="empty">Nessun paper salvato in questa selezione.</div>`;
+    return html || `<div class="empty">No saved papers in this selection.</div>`;
   }
 
   function render() {
@@ -328,12 +398,21 @@
       });
       const reserveHtml = renderReserve(query);
       if (reserveHtml) html += reserveHtml;
-      if (!html) html = '<div class="empty">Nessun risultato per questa ricerca.</div>';
+      if (!html) html = '<div class="empty">No results for this search.</div>';
       const n = collectAllSessionsForSearch().length;
-      searchMetaEl.textContent = n + (n === 1 ? ' risultato' : ' risultati');
+      searchMetaEl.textContent = n + (n === 1 ? ' result' : ' results');
       mainEl.innerHTML = html;
     } else if (view === 'mine') {
       mainEl.innerHTML = renderMine();
+      searchMetaEl.textContent = '';
+    } else if (view === 'overview') {
+      mainEl.innerHTML = renderOverview();
+      searchMetaEl.textContent = '';
+    } else if (view === 'notes') {
+      mainEl.innerHTML = renderNotesTab();
+      searchMetaEl.textContent = '';
+    } else if (view === 'where') {
+      mainEl.innerHTML = renderWhere();
       searchMetaEl.textContent = '';
     } else {
       mainEl.innerHTML = renderDay(currentDay, '') + (currentDay === '18' ? renderReserve('') : '');
@@ -359,7 +438,7 @@
         e.stopPropagation();
         const detail = el.closest('.paper').querySelector('.pdetail');
         const open = detail.classList.toggle('open');
-        el.textContent = open ? 'dettagli ↑' : 'dettagli ↓';
+        el.textContent = open ? 'details ↑' : 'details ↓';
       });
     });
     mainEl.querySelectorAll('[data-role="noteicon"]').forEach(icon => {
@@ -369,9 +448,26 @@
         const detail = paper.querySelector('.pdetail');
         const more = paper.querySelector('[data-action="toggle-detail"]');
         detail.classList.add('open');
-        more.textContent = 'dettagli ↑';
+        more.textContent = 'details ↑';
         const ta = paper.querySelector('textarea[data-action="note"]');
         if (ta) { ta.focus(); if (ta.scrollIntoView) ta.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+      });
+    });
+    mainEl.querySelectorAll('[data-action="download-all-notes"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const filterFn = p => (notes[p.id] || '').trim().length > 0;
+        const items = [];
+        DAY_ORDER.forEach(day => {
+          (AGENDA[day] || []).forEach(block => {
+            block.tracks.forEach(tr => {
+              if (tr.kind === 'session') {
+                tr.session.papers.forEach(p => { if (filterFn(p)) items.push({ p }); });
+              }
+            });
+          });
+        });
+        RESERVE.forEach(p => { if (filterFn(p)) items.push({ p }); });
+        downloadAllNotes(items);
       });
     });
     mainEl.querySelectorAll('[data-action="add-calendar"]').forEach(btn => {
