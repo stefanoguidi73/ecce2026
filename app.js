@@ -352,8 +352,142 @@
     return html;
   }
 
+  // ---------- Where: venues + map ----------
+  // Coordinates are approximate (city-block level) fallbacks in case live
+  // geocoding is unavailable; the Contrada dell'Onda address in particular
+  // should be double-checked against the definitive event address.
+  const VENUES = [
+    {
+      key: 'sanniccolo',
+      name: 'Palazzo San Niccolò',
+      org: 'Università di Siena',
+      address: 'Via Roma 56, 53100 Siena',
+      fallback: [43.3123, 11.3322],
+      schedule: [
+        { day: 'Wed 16 Sep', text: 'Registration, keynote (Agnieszka Wykowska), paper sessions, coffee breaks & lunch' },
+        { day: 'Thu 17 Sep', text: 'Parallel paper sessions all day, General Assembly' },
+        { day: 'Fri 18 Sep', text: 'Parallel paper sessions, Awards & closing' },
+      ]
+    },
+    {
+      key: 'santachiara',
+      name: 'Santa Chiara Lab',
+      org: 'Università di Siena',
+      address: 'Via Valdimontone 1, 53100 Siena',
+      fallback: [43.3184, 11.3298],
+      schedule: [
+        { day: 'Tue 15 Sep', text: 'Workshop on Cognition and LLMs (14:30–17:30), Welcome reception (17:30–18:00)' },
+        { day: 'Wed 16 Sep', text: 'Keynote (Patrizia Marti, 18:00–19:00), Welcome reception (19:00–19:30)' },
+      ]
+    },
+    {
+      key: 'onda',
+      name: "Contrada dell'Onda",
+      org: 'Contrada Capitana dell\u2019Onda',
+      address: 'Via Giovanni Duprè, Siena',
+      note: 'Provisional — venue for the keynote and social dinner is not yet 100% confirmed.',
+      fallback: [43.3178, 11.3288],
+      schedule: [
+        { day: 'Thu 17 Sep', text: 'Keynote (Harry Witchel, 18:00–19:00), visit to the contrada (19:00–19:30), social dinner (from 20:00)' },
+      ]
+    },
+  ];
+
+  let mapInstance = null;
+  let routeShown = false;
+  let routeLayer = null;
+
+  function venueCardHTML(v) {
+    return `
+      <div class="venue-card">
+        <h3>${esc(v.name)}</h3>
+        <div class="vaddr">${esc(v.address)}${v.org ? ' — ' + esc(v.org) : ''}</div>
+        ${v.note ? `<div class="vnote">${esc(v.note)}</div>` : ''}
+        ${v.schedule.map(s => `<div class="vwhen"><b>${esc(s.day)}:</b> ${esc(s.text)}</div>`).join('')}
+      </div>`;
+  }
+
   function renderWhere() {
-    return `<div class="empty"><span class="big">📍</span>Section coming soon.<br>Here you'll soon find information about the conference venues, with maps to help you get there.</div>`;
+    return `
+      <div class="venues">${VENUES.map(venueCardHTML).join('')}</div>
+      <div class="mapwrap">
+        <div class="maptoolbar"><button id="route-toggle" data-action="toggle-route">Show walking route</button></div>
+        <div id="leaflet-map"></div>
+        <div class="map-note">Map data © OpenStreetMap contributors · Tiles by CARTO</div>
+      </div>`;
+  }
+
+  async function geocode(address) {
+    try {
+      const res = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(address));
+      const data = await res.json();
+      if (data && data[0]) return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+    } catch (e) { /* fall through to fallback */ }
+    return null;
+  }
+
+  async function initMap() {
+    const el = document.getElementById('leaflet-map');
+    if (!el || typeof L === 'undefined') return;
+    if (mapInstance) { mapInstance.remove(); mapInstance = null; }
+    routeShown = false;
+    routeLayer = null;
+
+    const map = L.map(el).setView([43.3178, 11.3305], 15);
+    mapInstance = map;
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 19
+    }).addTo(map);
+
+    const points = [];
+    for (const v of VENUES) {
+      let coords = await geocode(v.address + ', Italy');
+      if (!coords) coords = v.fallback;
+      points.push(coords);
+      L.circleMarker(coords, {
+        radius: 9,
+        color: '#ffffff',
+        weight: 2,
+        fillColor: '#CB648A',
+        fillOpacity: 0.95
+      }).addTo(map).bindPopup(`<b>${esc(v.name)}</b><br>${esc(v.address)}`);
+    }
+    if (points.length) {
+      map.fitBounds(points, { padding: [30, 30] });
+    }
+
+    const routeBtn = document.getElementById('route-toggle');
+    if (routeBtn) {
+      routeBtn.addEventListener('click', async () => {
+        if (routeShown) {
+          if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+          routeShown = false;
+          routeBtn.classList.remove('on');
+          routeBtn.textContent = 'Show walking route';
+          return;
+        }
+        routeBtn.textContent = 'Loading…';
+        const coordsStr = points.map(p => p[1] + ',' + p[0]).join(';');
+        let line = null;
+        try {
+          const res = await fetch(`https://router.project-osrm.org/route/v1/foot/${coordsStr}?overview=full&geometries=geojson`);
+          const data = await res.json();
+          if (data && data.routes && data.routes[0]) {
+            const latlngs = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+            line = L.polyline(latlngs, { color: '#C8532E', weight: 4, opacity: 0.8 });
+          }
+        } catch (e) { /* fall back to straight line below */ }
+        if (!line) {
+          line = L.polyline(points, { color: '#C8532E', weight: 3, opacity: 0.7, dashArray: '6 6' });
+        }
+        routeLayer = line.addTo(map);
+        routeShown = true;
+        routeBtn.classList.add('on');
+        routeBtn.textContent = 'Hide walking route';
+      });
+    }
   }
 
   function renderMine() {
@@ -401,6 +535,7 @@
     } else if (view === 'where') {
       mainEl.innerHTML = renderWhere();
       searchMetaEl.textContent = '';
+      initMap();
     } else {
       mainEl.innerHTML = renderDay(currentDay, '') + (currentDay === '18' ? renderReserve('') : '');
       searchMetaEl.textContent = '';
