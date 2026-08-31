@@ -249,13 +249,48 @@
       </div>`;
   }
 
-  function eventCardHTML(tr, timeCtx) {
-    const cls = tr.kind === 'keynote' ? 'card event keynote' : 'card event';
-    const calBtn = (tr.kind === 'keynote' && timeCtx) ? calButtonHTML({
-      title: tr.title, location: 'ECCE 2026 — Siena, Italy', description: '',
+  function keynoteCardHTML(tr, timeCtx, forceOpen) {
+    const kn = tr.keynote;
+    const id = kn.id;
+    const isBookmarked = bookmarks.has(id);
+    const note = notes[id] || '';
+    const calBtn = timeCtx ? calButtonHTML({
+      title: `${kn.talk_title} — ${kn.speaker}`,
+      location: 'ECCE 2026 — Siena, Italy',
+      description: tr.title,
       day: timeCtx.day, start: timeCtx.start, end: timeCtx.end
     }) : '';
-    return `<div class="${cls}"><span class="label">${esc(tr.title)}</span>${calBtn}</div>`;
+    return `
+      <div class="card keynote" data-pid="${esc(String(id))}">
+        <div class="ptop">
+          <div class="ptopleft"></div>
+          <div class="ptopright">
+            ${calBtn}
+            <button class="bookmark ${isBookmarked ? 'on' : ''}" data-action="toggle-bookmark" data-pid="${esc(String(id))}" aria-label="Save to My programme">${isBookmarked ? '★' : '☆'}</button>
+          </div>
+        </div>
+        <div class="kntitle">Keynote — ${esc(kn.talk_title)}</div>
+        <div class="knspeaker">${esc(kn.speaker)}</div>
+        <div class="prow">
+          <div class="pmore" data-action="toggle-detail">details ${forceOpen ? '↑' : '↓'}</div>
+          <span class="noteicon ${note ? 'on' : ''}" data-role="noteicon" title="${note ? 'You have saved notes' : 'No notes'}">✎</span>
+        </div>
+        <div class="pdetail ${forceOpen ? 'open' : ''}">
+          <div>${esc(kn.abstract)}</div>
+          <div class="notewrap">
+            <label for="note-${esc(String(id))}">Your notes</label>
+            <textarea id="note-${esc(String(id))}" data-action="note" data-pid="${esc(String(id))}" placeholder="Write your notes on this talk…">${esc(note)}</textarea>
+            <div class="savedhint" data-role="savedhint">saved</div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function eventCardHTML(tr, timeCtx, forceOpen) {
+    if (tr.kind === 'keynote' && tr.keynote) {
+      return keynoteCardHTML(tr, timeCtx, forceOpen);
+    }
+    return `<div class="card event"><span class="label">${esc(tr.title)}</span></div>`;
   }
 
   function blockHTML(day, block, q, opts) {
@@ -270,6 +305,12 @@
       }
       if (tr.kind === 'workshop') {
         return (q || customFilter) ? null : { tr, html: workshopCardHTML(tr, timeCtx) };
+      }
+      if (tr.kind === 'keynote' && tr.keynote) {
+        if (customFilter) {
+          return filterFn(tr.keynote) ? { tr, html: eventCardHTML(tr, timeCtx, true) } : null;
+        }
+        return q ? null : { tr, html: eventCardHTML(tr, timeCtx) };
       }
       return (q || customFilter) ? null : { tr, html: eventCardHTML(tr, timeCtx) };
     }).filter(Boolean);
@@ -297,6 +338,15 @@
         <p class="note">Surplus beyond session capacity — to be placed if a slot frees up.</p>
         ${items.map(p => paperHTML(p, q)).join('')}
       </div>`;
+  }
+
+  function parsePid(raw) {
+    const n = Number(raw);
+    return Number.isNaN(n) ? raw : n;
+  }
+
+  function keynoteAsPaper(kn) {
+    return { id: kn.id, title: kn.talk_title, authors: kn.speaker, abstract: kn.abstract, type: 'keynote' };
   }
 
   function downloadAllNotes(items) {
@@ -333,6 +383,10 @@
         block.tracks.forEach(tr => {
           if (tr.kind === 'session') {
             tr.session.papers.forEach(p => { if (filterFn(p)) items.push({ p }); });
+          }
+          if (tr.kind === 'keynote' && tr.keynote) {
+            const p = keynoteAsPaper(tr.keynote);
+            if (filterFn(p)) items.push({ p });
           }
         });
       });
@@ -555,7 +609,7 @@
     mainEl.querySelectorAll('[data-action="toggle-detail"]').forEach(el => {
       el.addEventListener('click', (e) => {
         e.stopPropagation();
-        const detail = el.closest('.paper').querySelector('.pdetail');
+        const detail = el.closest('.paper, .card.keynote').querySelector('.pdetail');
         const open = detail.classList.toggle('open');
         el.textContent = open ? 'details ↑' : 'details ↓';
       });
@@ -563,7 +617,7 @@
     mainEl.querySelectorAll('[data-role="noteicon"]').forEach(icon => {
       icon.addEventListener('click', (e) => {
         e.stopPropagation();
-        const paper = icon.closest('.paper');
+        const paper = icon.closest('.paper, .card.keynote');
         const detail = paper.querySelector('.pdetail');
         const more = paper.querySelector('[data-action="toggle-detail"]');
         detail.classList.add('open');
@@ -581,6 +635,10 @@
             block.tracks.forEach(tr => {
               if (tr.kind === 'session') {
                 tr.session.papers.forEach(p => { if (filterFn(p)) items.push({ p }); });
+              }
+              if (tr.kind === 'keynote' && tr.keynote) {
+                const p = keynoteAsPaper(tr.keynote);
+                if (filterFn(p)) items.push({ p });
               }
             });
           });
@@ -605,7 +663,7 @@
     mainEl.querySelectorAll('[data-action="toggle-bookmark"]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const id = Number(btn.getAttribute('data-pid'));
+        const id = parsePid(btn.getAttribute('data-pid'));
         if (bookmarks.has(id)) bookmarks.delete(id); else bookmarks.add(id);
         saveBookmarks();
         render();
@@ -614,9 +672,9 @@
     mainEl.querySelectorAll('[data-action="note"]').forEach(ta => {
       let t = null;
       ta.addEventListener('input', () => {
-        const id = Number(ta.getAttribute('data-pid'));
+        const id = parsePid(ta.getAttribute('data-pid'));
         notes[id] = ta.value;
-        const icon = ta.closest('.paper').querySelector('[data-role="noteicon"]');
+        const icon = ta.closest('.paper, .card.keynote').querySelector('[data-role="noteicon"]');
         if (icon) icon.classList.toggle('on', ta.value.trim().length > 0);
         clearTimeout(t);
         t = setTimeout(() => {
