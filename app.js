@@ -263,13 +263,13 @@
     return `
       <div class="card keynote" data-pid="${esc(String(id))}">
         <div class="ptop">
-          <div class="ptopleft"></div>
+          <div class="ptopleft"><span class="knlabel">Keynote</span></div>
           <div class="ptopright">
             ${calBtn}
             <button class="bookmark ${isBookmarked ? 'on' : ''}" data-action="toggle-bookmark" data-pid="${esc(String(id))}" aria-label="Save to My programme">${isBookmarked ? '★' : '☆'}</button>
           </div>
         </div>
-        <div class="kntitle">Keynote — ${esc(kn.talk_title)}</div>
+        <div class="kntitle">${esc(kn.talk_title)}</div>
         <div class="knspeaker">${esc(kn.speaker)}</div>
         <div class="prow">
           <div class="pmore" data-action="toggle-detail">details ${forceOpen ? '↑' : '↓'}</div>
