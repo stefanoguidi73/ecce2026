@@ -222,12 +222,17 @@
       : `${matched.length} of ${s.papers.length} papers`;
     const savedCount = s.papers.filter(p => bookmarks.has(p.id)).length;
     const savedBadge = savedCount > 0 ? `<span class="savedcount">${'★'.repeat(savedCount)}</span>` : '';
+    const metaBits = [];
+    if (s.chair) metaBits.push(`Chair: ${esc(s.chair)}`);
+    if (s.room) metaBits.push(esc(s.room));
+    const metaLine = metaBits.length ? `<div class="sessionmeta">${metaBits.join(' &middot; ')}</div>` : '';
     return `
       <div class="card session" data-role="session" data-skey="${esc(key)}" style="--accent:${accent}">
         <span class="chev">${forceOpen ? '▾' : '▸'}</span>
         ${trackLabel ? `<div class="tracklabel">Track ${trackLabel}</div>` : ''}
         <h3>${esc(s.title)}</h3>
         <div class="count">${countLabel}${savedBadge}</div>
+        ${metaLine}
         <div class="paperlist ${forceOpen ? 'open' : ''}">
           ${matched.map(p => paperHTML(p, q, timeCtx, s.title)).join('')}
         </div>
@@ -236,14 +241,14 @@
 
   function workshopCardHTML(tr, timeCtx) {
     const calBtn = timeCtx ? calButtonHTML({
-      title: tr.title, location: 'Santa Chiara Lab, Siena',
+      title: tr.title, location: tr.room || 'Santa Chiara Lab, Siena',
       description: 'ECCE 2026 — registered participants only',
       day: timeCtx.day, start: timeCtx.start, end: timeCtx.end
     }) : '';
     return `
       <div class="card workshop">
         <div class="wtop"><div class="wtitle">${esc(tr.title)}</div>${calBtn}</div>
-        <div class="wmeta">Santa Chiara Lab, Siena</div>
+        <div class="wmeta">${esc(tr.room || 'Santa Chiara Lab, Siena')}</div>
         <div class="wmeta">For registered participants only</div>
         <span class="wbadge">Workshop</span>
       </div>`;
@@ -256,7 +261,7 @@
     const note = notes[id] || '';
     const calBtn = timeCtx ? calButtonHTML({
       title: `${kn.talk_title} — ${kn.speaker}`,
-      location: 'ECCE 2026 — Siena, Italy',
+      location: kn.room || 'ECCE 2026 — Siena, Italy',
       description: tr.title,
       day: timeCtx.day, start: timeCtx.start, end: timeCtx.end
     }) : '';
@@ -271,6 +276,7 @@
         </div>
         <div class="kntitle">${esc(kn.talk_title)}</div>
         <div class="knspeaker">${esc(kn.speaker)}</div>
+        ${kn.room ? `<div class="sessionmeta">${esc(kn.room)}</div>` : ''}
         <div class="prow">
           <div class="pmore" data-action="toggle-detail">details ${forceOpen ? '↑' : '↓'}</div>
           <span class="noteicon ${note ? 'on' : ''}" data-role="noteicon" title="${note ? 'You have saved notes' : 'No notes'}">✎</span>
