@@ -444,12 +444,11 @@
       key: 'onda',
       name: "Contrada dell'Onda",
       org: 'Contrada Capitana dell\u2019Onda',
-      address: 'Via Giovanni Duprè, Siena',
-      note: 'Provisional — venue for the keynote and social dinner is not yet 100% confirmed.',
+      address: 'Via Giovanni Duprè 111, Siena',
       coords: [43.3156824565025, 11.331905980223642],
       fallback: [43.3178, 11.3288],
       schedule: [
-        { day: 'Thu 17 Sep', text: 'Keynote (Harry Witchel, 18:00–19:00), visit to the contrada (19:00–19:30), social dinner (from 20:00)' },
+        { day: 'Thu 17 Sep', text: 'Keynote (Harry Witchel, 18:00–19:00); presentation of the Contrada, two groups (19:00–20:00); social dinner from 20:00 at Vicolo San Salvatore 24' },
       ]
     },
   ];
